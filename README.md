@@ -1,6 +1,6 @@
 # order-service
 
-This is a Fastify app that provides an API for submitting orders. It is meant to be used in conjunction with the [store-front](../store-front) app.
+This is a Fastify app that provides an API for submitting orders. It is meant to be used in conjunction with the store-front app.
 
 It is a simple REST API that allows you to add an order to a message queue that supports the AMQP 1.0 protocol.
 
