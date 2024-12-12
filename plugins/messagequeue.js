@@ -1,74 +1,50 @@
-'use strict'
+'use strict';
 
-const fp = require('fastify-plugin')
+const fp = require('fastify-plugin');
+const { ServiceBusClient } = require('@azure/service-bus');
+const { DefaultAzureCredential } = require('@azure/identity');
 
 module.exports = fp(async function (fastify, opts) {
-  fastify.decorate('sendMessage', function (message) {
-    const body = message.toString()
+  fastify.decorate('sendMessage', async function (message) {
+    const body = message.toString();
+
     if (process.env.ORDER_QUEUE_USERNAME && process.env.ORDER_QUEUE_PASSWORD) {
-      console.log('sending message ${body} to ${process.env.ORDER_QUEUE_NAME} on ${process.env.ORDER_QUEUE_HOSTNAME} using local auth credentials')
-      
-      const rhea = require('rhea')
-      const container = rhea.create_container()
-      var amqp_message = container.message;
+      // Deprecated rhea-based logic (if no longer needed)
+      console.log('Legacy RabbitMQ support is no longer enabled.');
+      return;
+    }
 
-      const connectOptions = {
-        hostname: process.env.ORDER_QUEUE_HOSTNAME,
-        host: process.env.ORDER_QUEUE_HOSTNAME,
-        port: process.env.ORDER_QUEUE_PORT,
-        username: process.env.ORDER_QUEUE_USERNAME,
-        password: process.env.ORDER_QUEUE_PASSWORD,
-        reconnect_limit: process.env.ORDER_QUEUE_RECONNECT_LIMIT || 0
-      }
-      
-      if (process.env.ORDER_QUEUE_TRANSPORT !== undefined) {
-        connectOptions.transport = process.env.ORDER_QUEUE_TRANSPORT
-      }
-      
-      const connection = container.connect(connectOptions)
-      
-      container.once('sendable', function (context) {
-        const sender = context.sender;
-        sender.send({
-          body: amqp_message.data_section(Buffer.from(body,'utf8'))
-        });
-        sender.close();
-        connection.close();
-      })
-
-      connection.open_sender(process.env.ORDER_QUEUE_NAME)
-    } else if (process.env.USE_WORKLOAD_IDENTITY_AUTH === 'true') {
-      const { ServiceBusClient } = require("@azure/service-bus");
-      const { DefaultAzureCredential } = require("@azure/identity");
-
+    if (process.env.USE_WORKLOAD_IDENTITY_AUTH === 'true') {
+      // Azure Service Bus logic
       const fullyQualifiedNamespace = process.env.ORDER_QUEUE_HOSTNAME || process.env.AZURE_SERVICEBUS_FULLYQUALIFIEDNAMESPACE;
+      const queueName = process.env.ORDER_QUEUE_NAME;
 
-      console.log(`sending message ${body} to ${process.env.ORDER_QUEUE_NAME} on ${fullyQualifiedNamespace} using Microsoft Entra ID Workload Identity credentials`);
-      
-      if (!fullyQualifiedNamespace) {
-        console.log('no hostname set for message queue. exiting.');
+      if (!fullyQualifiedNamespace || !queueName) {
+        console.error('Missing required Azure Service Bus environment variables.');
         return;
       }
-      
-      const queueName = process.env.ORDER_QUEUE_NAME
+
+      console.log(`Sending message to ${queueName} on ${fullyQualifiedNamespace} using Microsoft Entra ID Workload Identity credentials.`);
 
       const credential = new DefaultAzureCredential();
 
-      async function sendMessage() {
+      try {
         const sbClient = new ServiceBusClient(fullyQualifiedNamespace, credential);
         const sender = sbClient.createSender(queueName);
 
-        try {
-          await sender.sendMessages({ body: body });
-        } finally {
-          await sender.close();
-          await sbClient.close();
-        }
+        // Sending the message
+        await sender.sendMessages({ body });
+
+        console.log(`Message sent successfully: ${body}`);
+
+        // Cleanup
+        await sender.close();
+        await sbClient.close();
+      } catch (error) {
+        console.error(`Failed to send message: ${error.message}`);
       }
-      sendMessage().catch(console.error);
     } else {
-      console.log('no credentials set for message queue. exiting.')
-      return
+      console.error('No credentials set for message queue. Exiting.');
     }
-  })
-})
+  });
+});

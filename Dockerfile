@@ -23,4 +23,4 @@ EXPOSE 3000
 ENV APP_VERSION=$APP_VERSION
 
 # Start the app
-CMD [ "npm", "start" ]
+CMD [ "node", "server.js" ]
